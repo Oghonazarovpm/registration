@@ -1,0 +1,6 @@
+{
+  "name": "Мои задачи",
+  "description": "Учебное веб-приложение для управления списком задач с подготовкой к интеграции с Supabase.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
