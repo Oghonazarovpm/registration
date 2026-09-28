@@ -1,8 +1,19 @@
 import React, { useState } from 'react';
-import { CheckSquare, ArrowRight, ShieldAlert, Sparkles, User, Lock, Mail } from 'lucide-react';
+import { 
+  CheckSquare, 
+  ArrowRight, 
+  Sparkles, 
+  Lock, 
+  Mail, 
+  Loader2, 
+  AlertCircle, 
+  CheckCircle
+} from 'lucide-react';
+import { getSupabaseClient } from '../lib/supabase';
 
 interface AuthScreenProps {
   onStartDemo: () => void;
+  onLoginSuccess?: () => void;
 }
 
 type AuthMode = 'login' | 'register';
@@ -11,15 +22,95 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onStartDemo }) => {
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successNotice, setSuccessNotice] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // По требованию: не сохраняем пароли и не имитируем настоящую регистрацию/вход
-    setPassword('');
-    setInfoMessage(
-      'Подключим Supabase на следующем шаге. Воспользуйтесь кнопкой «Попробовать демо» ниже!'
-    );
+    if (isLoading) return;
+
+    setErrorMessage(null);
+    setSuccessNotice(null);
+
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setErrorMessage('Пожалуйста, введите адрес электронной почты');
+      return;
+    }
+    if (!password) {
+      setErrorMessage('Пожалуйста, введите пароль');
+      return;
+    }
+    if (password.length < 6) {
+      setErrorMessage('Пароль должен содержать минимум 6 символов');
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    setIsLoading(true);
+
+    try {
+      if (mode === 'register') {
+        // Регистрация через supabase.auth.signUp с emailRedirectTo
+        const { data, error } = await supabase.auth.signUp({
+          email: trimmedEmail,
+          password: password,
+          options: {
+            emailRedirectTo: 'https://registration.oghonazarovkh.workers.dev/',
+          },
+        });
+
+        // Не сохраняем пароль пользователя самостоятельно
+        setPassword('');
+
+        if (error) {
+          throw error;
+        }
+
+        // Если после регистрации сессии нет, показываем сообщение о подтверждении
+        if (!data.session) {
+          setSuccessNotice('Проверьте почту и подтвердите регистрацию');
+          setMode('login');
+        }
+      } else {
+        // Вход через supabase.auth.signInWithPassword
+        const { error } = await supabase.auth.signInWithPassword({
+          email: trimmedEmail,
+          password: password,
+        });
+
+        // Не сохраняем пароль пользователя самостоятельно
+        setPassword('');
+
+        if (error) {
+          throw error;
+        }
+      }
+    } catch (err: unknown) {
+      setPassword('');
+      console.error('Ошибка авторизации Supabase:', err);
+
+      let msg = 'Произошла ошибка при выполнении запроса';
+      if (err instanceof Error) {
+        if (err.message.includes('Invalid API key')) {
+          msg = 'Недействительный или неполный API ключ Supabase (Invalid API key). Проверьте VITE_SUPABASE_PUBLISHABLE_KEY в переменных окружения.';
+        } else if (err.message.includes('Invalid login credentials')) {
+          msg = 'Неверный адрес электронной почты или пароль';
+        } else if (err.message.includes('User already registered')) {
+          msg = 'Пользователь с таким email уже зарегистрирован. Переключитесь на вкладку «Вход».';
+        } else if (err.message.includes('Email not confirmed')) {
+          msg = 'Электронная почта ещё не подтверждена. Проверьте почту и перейдите по ссылке активации.';
+        } else if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+          msg = 'Не удалось связаться с сервером Supabase. Проверьте подключение к сети.';
+        } else {
+          msg = err.message;
+        }
+      }
+      setErrorMessage(msg);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -33,7 +124,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onStartDemo }) => {
           Мои задачи
         </h1>
         <p className="text-slate-500 text-sm mt-1">
-          Учебное веб-приложение для управления делами
+          Облачное хранилище задач с базой данных Supabase
         </p>
       </div>
 
@@ -45,7 +136,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onStartDemo }) => {
             type="button"
             onClick={() => {
               setMode('login');
-              setInfoMessage(null);
+              setErrorMessage(null);
             }}
             className={`py-2.5 text-sm font-semibold rounded-xl transition-all cursor-pointer ${
               mode === 'login'
@@ -59,7 +150,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onStartDemo }) => {
             type="button"
             onClick={() => {
               setMode('register');
-              setInfoMessage(null);
+              setErrorMessage(null);
             }}
             className={`py-2.5 text-sm font-semibold rounded-xl transition-all cursor-pointer ${
               mode === 'register'
@@ -72,19 +163,29 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onStartDemo }) => {
         </div>
 
         <div className="p-6">
-          {/* Уведомление о следующем этапе (Supabase) */}
-          <div className="mb-5 p-3.5 rounded-xl bg-amber-50 border border-amber-200/70 text-amber-900 flex items-start gap-3 text-xs leading-relaxed">
-            <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-            <div>
-              <span className="font-semibold block text-amber-950">
-                Подключим Supabase на следующем шаге
-              </span>
-              Регистрация и облачная авторизация появятся на втором этапе проекта. Сейчас вы можете протестировать весь функционал задач в демо-режиме.
+          {/* Сообщение об успешной регистрации с ожиданием подтверждения почты */}
+          {successNotice && (
+            <div className="mb-5 p-4 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 flex items-start gap-3 text-xs leading-relaxed">
+              <CheckCircle className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold block text-sm text-blue-950 mb-1">
+                  {successNotice}
+                </span>
+                Мы отправили ссылку для подтверждения на указанную электронную почту. После подтверждения войдите в систему.
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Сообщение об ошибке */}
+          {errorMessage && (
+            <div className="mb-4 p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-900 flex items-start gap-2.5 text-xs leading-relaxed">
+              <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+              <div className="font-medium">{errorMessage}</div>
+            </div>
+          )}
 
           {/* Форма авторизации */}
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleAuthSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1.5">
                 Электронная почта
@@ -95,10 +196,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onStartDemo }) => {
                 </div>
                 <input
                   type="email"
+                  required
                   value={email}
+                  disabled={isLoading}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="name@example.com"
-                  className="w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-colors"
+                  className="w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-colors disabled:bg-slate-50 disabled:text-slate-400"
                 />
               </div>
             </div>
@@ -113,26 +216,35 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onStartDemo }) => {
                 </div>
                 <input
                   type="password"
+                  required
                   value={password}
+                  disabled={isLoading}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  autoComplete="new-password"
-                  className="w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-colors"
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                  className="w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600/20 focus:border-blue-600 transition-colors disabled:bg-slate-50 disabled:text-slate-400"
                 />
               </div>
+              {mode === 'register' && (
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Не менее 6 символов. Подтверждение будет направлено на Cloudflare Worker.
+                </p>
+              )}
             </div>
-
-            {infoMessage && (
-              <div className="p-3 bg-blue-50 border border-blue-200 text-blue-900 rounded-xl text-xs font-medium leading-relaxed">
-                {infoMessage}
-              </div>
-            )}
 
             <button
               type="submit"
-              className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-sm rounded-xl transition-colors cursor-pointer border border-slate-300/80"
+              disabled={isLoading}
+              className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:bg-blue-400 text-white font-semibold text-sm rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
             >
-              {mode === 'login' ? 'Войти' : 'Зарегистрироваться'}
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Подождите...</span>
+                </>
+              ) : (
+                <span>{mode === 'login' ? 'Войти в аккаунт' : 'Зарегистрироваться'}</span>
+              )}
             </button>
           </form>
 
@@ -151,23 +263,27 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onStartDemo }) => {
             <button
               type="button"
               onClick={onStartDemo}
-              className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-base rounded-xl shadow-md shadow-blue-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer group"
+              className="w-full py-3 px-4 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 font-semibold text-base rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer group border border-slate-200"
             >
-              <Sparkles className="w-5 h-5 text-blue-200" />
+              <Sparkles className="w-5 h-5 text-blue-600" />
               <span>Попробовать демо</span>
-              <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform text-slate-500" />
             </button>
             <p className="text-center text-xs text-slate-500">
-              Мгновенный вход без регистрации · Данные в вашем браузере
+              Локальное хранилище браузера без подключения к Supabase
             </p>
           </div>
         </div>
+
+        <div className="bg-slate-50 px-6 py-2.5 border-t border-slate-200/80 text-center text-[11px] text-slate-400">
+          Supabase Auth · Таблица public.tasks
+        </div>
       </div>
 
-      {/* Футер с пояснением */}
+      {/* Футер */}
       <div className="w-full max-w-md text-center mt-6">
         <p className="text-xs text-slate-400">
-          Учебный проект «Мои задачи» · Демонстрационная версия
+          Проект: <code className="text-slate-600">qhoylszqcgknqxdcxjly.supabase.co</code>
         </p>
       </div>
     </div>
